@@ -35,7 +35,7 @@ def extract_transitions_from_docx(docx_bytes):
             transitions_raw.append(text)
     return transitions_raw
 
-# --- Few-shot JSON (optionally limited) ---
+# --- Few-shot JSON ---
 def build_few_shot_json(transitions, limit=None):
     few_shot = []
     subset = transitions[:limit] if limit else transitions
@@ -46,7 +46,7 @@ def build_few_shot_json(transitions, limit=None):
         })
     return json.dumps(few_shot, ensure_ascii=False, indent=2)
 
-# --- Fine-tuning JSONL (optionally limited) ---
+# --- Fine-tuning JSONL ---
 def build_fine_tuning_jsonl(transitions, limit=None):
     lines = []
     subset = transitions[:limit] if limit else transitions
@@ -62,13 +62,19 @@ def build_fine_tuning_jsonl(transitions, limit=None):
 
 # --- Streamlit Interface ---
 st.title("🪄 Transition Extractor & Validator")
-st.write("Upload a `.docx` file with transitions. Choose sample or full mode below to control how many transitions are processed and exported.")
 
-# --- Mode selection ---
+st.write("Upload a `.docx` file with transitions. Use the options below to choose your processing mode and expected number of transition groups.")
+
+# Input: Number of placeholders (usually corresponds to blocks of 3 transitions)
+placeholder_count = st.number_input("🧮 Number of TRANSITION placeholders (estimation base)", min_value=1, step=1)
+
 sample_mode = st.toggle("⚙️ Limit to 10 transitions (sample mode)", value=True)
 limit = 10 if sample_mode else None
+expected_transitions = placeholder_count * 3
 
-# --- File upload ---
+st.markdown(f"📊 Expected number of transitions (≈3 per placeholder): **{expected_transitions}**")
+
+# File upload
 uploaded_file = st.file_uploader("📄 Upload your Word (.docx) file", type=["docx"])
 
 if uploaded_file is not None:
@@ -84,11 +90,13 @@ if uploaded_file is not None:
                     cleaned.append(phrase)
 
             if cleaned:
-                st.success(f"{len(cleaned)} validated transitions {'(limited to 10)' if sample_mode else '(full list)'}")
-                st.write("📋 Preview of transitions:")
-                st.code("\n".join(cleaned), language="text")
+                st.success(f"{len(cleaned)} validated transitions {'(sample of 10)' if sample_mode else '(full result)'}")
+                st.write("📋 Preview:")
+                st.code("\n".join(cleaned[:10]), language="text")
 
-                # --- Downloads ---
+                if not sample_mode:
+                    st.markdown(f"✅ **Total transitions found:** {len(cleaned)}")
+
                 st.download_button(
                     label="📥 Download Transitions (.txt)",
                     data="\n".join(cleaned),
