@@ -8,7 +8,7 @@ import json
 # --- CONFIG ---
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- Check if phrase is a transition ---
+# --- Transition validator ---
 def is_transition(phrase):
     prompt = f"""Is the following phrase a short transition commonly used to connect paragraphs in a news or editorial article?
 Phrase: "{phrase}"
@@ -19,105 +19,100 @@ Respond only with "Yes" or "No"."""
     )
     return response.choices[0].message.content.strip().lower() == "yes"
 
-# --- Extract transitions from DOCX ---
-def extract_transitions_from_docx(docx_bytes):
+# --- Extract transitions + context from DOCX ---
+def extract_transitions_with_context(docx_bytes):
     doc = docx.Document(io.BytesIO(docx_bytes))
-    transitions_raw = []
-    capture = False
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if "transitions" in text.lower():
-            capture = True
-            continue
-        if capture:
-            if not text:
-                break
-            transitions_raw.append(text)
-    return transitions_raw
+    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    transitions = []
+    i = 0
+    while i < len(paragraphs):
+        if "transitions" in paragraphs[i].lower():
+            i += 1
+            while i < len(paragraphs) and len(transitions) < 200:
+                line = paragraphs[i].strip("•–-1234567890. ").strip()
+                if not line or line.lower().startswith("à savoir"):
+                    break
+                if 2 <= len(line.split()) <= 7 and is_transition(line):
+                    para_before = paragraphs[i - 2] if i >= 2 else "Paragraphe précédent manquant."
+                    para_after = paragraphs[i - 1] if i >= 1 else "Paragraphe suivant manquant."
+                    transitions.append({
+                        "transition": line,
+                        "paragraph_a": para_before,
+                        "paragraph_b": para_after
+                    })
+                i += 1
+        else:
+            i += 1
+    return transitions
 
 # --- Few-shot JSON ---
-def build_few_shot_json(transitions, limit=None):
-    few_shot = []
-    subset = transitions[:limit] if limit else transitions
-    for i, phrase in enumerate(subset):
-        few_shot.append({
-            "input": f"Exemple {i+1} avant la transition.\nTRANSITION\nExemple {i+1} après la transition.",
-            "transition": phrase
-        })
-    return json.dumps(few_shot, ensure_ascii=False, indent=2)
+def build_few_shot_json(pairs):
+    return json.dumps([
+        {
+            "input": f"{pair['paragraph_a']}\nTRANSITION\n{pair['paragraph_b']}",
+            "transition": pair['transition']
+        } for pair in pairs
+    ], ensure_ascii=False, indent=2)
 
 # --- Fine-tuning JSONL ---
-def build_fine_tuning_jsonl(transitions, limit=None):
+def build_fine_tuning_jsonl(pairs):
     lines = []
-    subset = transitions[:limit] if limit else transitions
-    for i, phrase in enumerate(subset):
-        example = {
+    for i, pair in enumerate(pairs):
+        lines.append(json.dumps({
             "messages": [
-                {"role": "user", "content": f"Paragraph A:\nExemple {i+1} avant la transition.\n\nParagraph B:\nExemple {i+1} après la transition."},
-                {"role": "assistant", "content": phrase}
+                {"role": "user", "content": f"Paragraph A:\n{pair['paragraph_a']}\n\nParagraph B:\n{pair['paragraph_b']}"},
+                {"role": "assistant", "content": pair['transition']}
             ]
-        }
-        lines.append(json.dumps(example, ensure_ascii=False))
+        }, ensure_ascii=False))
     return "\n".join(lines)
 
-# --- Streamlit Interface ---
-st.title("🪄 Transition Extractor & Validator")
+# --- Streamlit UI ---
+st.title("🪄 Transition Extractor & Formatter")
 
-st.write("Upload a `.docx` file with transitions. Use the options below to choose your processing mode and expected number of transition groups.")
-
-# Input: Number of placeholders (usually corresponds to blocks of 3 transitions)
 placeholder_count = st.number_input("🧮 Number of TRANSITION placeholders (estimation base)", min_value=1, step=1)
+expected_transitions = placeholder_count * 3
+st.markdown(f"📊 Expected transitions: **{expected_transitions}**")
 
 sample_mode = st.toggle("⚙️ Limit to 10 transitions (sample mode)", value=True)
 limit = 10 if sample_mode else None
-expected_transitions = placeholder_count * 3
 
-st.markdown(f"📊 Expected number of transitions (≈3 per placeholder): **{expected_transitions}**")
-
-# File upload
 uploaded_file = st.file_uploader("📄 Upload your Word (.docx) file", type=["docx"])
 
 if uploaded_file is not None:
     with st.spinner("🔍 Processing document..."):
         try:
-            raw_candidates = extract_transitions_from_docx(uploaded_file.read())
-            cleaned = []
+            pairs = extract_transitions_with_context(uploaded_file.read())
+            if not pairs:
+                st.warning("No valid transitions found.")
+            else:
+                if limit:
+                    pairs = pairs[:limit]
 
-            subset = raw_candidates[:limit] if limit else raw_candidates
-            for line in subset:
-                phrase = line.strip("•–-1234567890. ").strip()
-                if 2 <= len(phrase.split()) <= 7 and is_transition(phrase):
-                    cleaned.append(phrase)
+                transitions_only = [p["transition"] for p in pairs]
 
-            if cleaned:
-                st.success(f"{len(cleaned)} validated transitions {'(sample of 10)' if sample_mode else '(full result)'}")
-                st.write("📋 Preview:")
-                st.code("\n".join(cleaned[:10]), language="text")
-
-                if not sample_mode:
-                    st.markdown(f"✅ **Total transitions found:** {len(cleaned)}")
+                st.success(f"{len(pairs)} validated transitions {'(sample)' if sample_mode else ''}")
+                st.write("📋 Sample Preview:")
+                st.code("\n".join(transitions_only[:10]), language="text")
 
                 st.download_button(
                     label="📥 Download Transitions (.txt)",
-                    data="\n".join(cleaned),
+                    data="\n".join(transitions_only),
                     file_name="validated_transitions.txt",
                     mime="text/plain"
                 )
 
                 st.download_button(
-                    label="📥 Download Few-Shot Format (.json)",
-                    data=build_few_shot_json(cleaned, limit),
+                    label="📥 Download Few-Shot JSON (.json)",
+                    data=build_few_shot_json(pairs),
                     file_name="few_shot_transitions.json",
                     mime="application/json"
                 )
 
                 st.download_button(
-                    label="📥 Download Fine-Tuning Format (.jsonl)",
-                    data=build_fine_tuning_jsonl(cleaned, limit),
+                    label="📥 Download Fine-Tuning JSONL (.jsonl)",
+                    data=build_fine_tuning_jsonl(pairs),
                     file_name="fine_tuning_transitions.jsonl",
                     mime="application/jsonl"
                 )
-            else:
-                st.warning("No valid transitions found.")
         except Exception as e:
             st.error(f"❌ Error: {e}")
