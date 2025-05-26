@@ -25,7 +25,7 @@ def extract_transitions_from_docx(docx_bytes):
     doc = docx.Document(io.BytesIO(docx_bytes))
     transitions_raw = []
     capture = False
-    
+
     for para in doc.paragraphs:
         text = para.text.strip()
         if "transitions" in text.lower():
@@ -37,42 +37,36 @@ def extract_transitions_from_docx(docx_bytes):
             transitions_raw.append(text)
     return transitions_raw
 
-# --- UI ---
+# --- Streamlit Interface ---
 st.title("🪄 Transition Extractor & Validator")
-st.write("This app downloads a Word document, extracts transition phrases after the `Transitions:` label, and filters them using AI.")
+st.write("Upload a `.docx` Word document. The app will extract transition phrases listed after the label `Transitions:` and use AI to check which ones are real transitions.")
 
-# --- Input: Public link to DOCX ---
-doc_url = st.text_input("📎 Paste public DOCX URL", "")
+# --- Upload File ---
+uploaded_file = st.file_uploader("📄 Upload your Word (.docx) file", type=["docx"])
 
-if st.button("🔍 Extract Transitions"):
-    if not doc_url:
-        st.error("Please enter a valid public DOCX URL.")
-    else:
-        with st.spinner("Downloading and extracting..."):
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            r = requests.get(doc_url, headers=headers)
+if uploaded_file is not None:
+    with st.spinner("🔍 Processing document..."):
+        try:
+            raw_candidates = extract_transitions_from_docx(uploaded_file.read())
 
-            if r.status_code != 200:
-                st.error(f"Download failed (status {r.status_code})")
+            cleaned = []
+            for line in raw_candidates:
+                phrase = line.strip("•–-1234567890. ").strip()
+                if 2 <= len(phrase.split()) <= 7 and is_transition(phrase):
+                    cleaned.append(phrase)
+
+            if cleaned:
+                st.success(f"{len(cleaned)} validated transitions found.")
+                st.write("📋 Sample of validated transitions:")
+                st.code("\n".join(cleaned[:10]), language="text")
+
+                st.download_button(
+                    label="📥 Download All Transitions",
+                    data="\n".join(cleaned),
+                    file_name="validated_transitions.txt",
+                    mime="text/plain"
+                )
             else:
-                raw_candidates = extract_transitions_from_docx(r.content)
-                cleaned = []
-                for line in raw_candidates:
-                    phrase = line.strip("•–-1234567890. ").strip()
-                    if 2 <= len(phrase.split()) <= 7 and is_transition(phrase):
-                        cleaned.append(phrase)
-
-                if cleaned:
-                    st.success(f"{len(cleaned)} validated transitions found.")
-                    st.write("📋 Sample Output:")
-                    st.code("\n".join(cleaned[:10]), language="text")
-
-                    # Download option
-                    st.download_button(
-                        label="📥 Download All Transitions",
-                        data="\n".join(cleaned),
-                        file_name="validated_transitions.txt",
-                        mime="text/plain"
-                    )
-                else:
-                    st.warning("No valid transitions found.")
+                st.warning("No valid transitions found in the file.")
+        except Exception as e:
+            st.error(f"❌ Error processing file: {e}")
