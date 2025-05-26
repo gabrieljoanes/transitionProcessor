@@ -5,19 +5,19 @@ import io
 import openai
 
 # --- CONFIG ---
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # --- Helper: Check if a string is a transition ---
 def is_transition(phrase):
     prompt = f"""Is the following phrase a short transition commonly used to connect paragraphs in a news or editorial article?
 Phrase: "{phrase}"
 Respond only with "Yes" or "No"."""
-    
-    response = openai.ChatCompletion.create(
+
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}]
     )
-    
+
     return response.choices[0].message.content.strip().lower() == "yes"
 
 # --- Helper: Extract transitions from DOCX ---
