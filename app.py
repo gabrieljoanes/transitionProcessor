@@ -5,6 +5,7 @@ import io
 import random
 import openai
 import re
+import json  # ✅ FIX: added to support JSON export
 from collections import Counter
 
 from extract_few_shots import extract_few_shot_examples  # --- FEW SHOT SECTION
