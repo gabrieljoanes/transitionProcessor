@@ -7,6 +7,8 @@ import openai
 import re
 from collections import Counter
 
+from extract_few_shots import extract_few_shot_examples  # --- FEW SHOT SECTION
+
 # --- CONFIG ---
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
@@ -127,3 +129,26 @@ if uploaded_file:
                     st.warning("No valid transitions found.")
             except Exception as e:
                 st.error(f"❌ Error: {e}")
+
+    # --- FEW SHOT SECTION ---
+    if st.button("✨ Generate Few-Shot Examples"):
+        with st.spinner("⚙️ Extracting few-shot examples..."):
+            try:
+                path = "/tmp/temp_few_shot.docx"
+                with open(path, "wb") as f:
+                    f.write(uploaded_file.read())
+
+                examples = extract_few_shot_examples(path)
+                st.success(f"{len(examples)} few-shot examples generated.")
+
+                st.json(examples[:3])  # Preview
+
+                st.download_button(
+                    label="📄 Download Few-Shot Examples (JSON)",
+                    data=json.dumps(examples, ensure_ascii=False, indent=2),
+                    file_name="few_shot_examples.json",
+                    mime="application/json"
+                )
+
+            except Exception as e:
+                st.error(f"❌ Error while generating few-shot examples: {e}")
