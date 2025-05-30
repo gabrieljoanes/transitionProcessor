@@ -85,33 +85,33 @@ if uploaded_file:
                     if 2 <= len(phrase.split()) <= 7 and not looks_like_date_or_invalid_code(phrase):
                         candidates.append(phrase)
 
-                # Sample
-                sample_size = max(1, int(len(candidates) * percent / 100))
-                sampled_candidates = random.sample(candidates, sample_size)
+                # Normalize and find duplicates from the full cleaned list
+                normalized_candidates = [normalize_strict(p) for p in candidates]
+                counter = Counter(normalized_candidates)
+                duplicates = [f"{p} ({count}x)" for p, count in counter.items() if count > 1]
+
+                # Remove duplicates while preserving first occurrence
+                seen = set()
+                unique_candidates = []
+                for original, norm in zip(candidates, normalized_candidates):
+                    if norm not in seen:
+                        seen.add(norm)
+                        unique_candidates.append(original)
+
+                # Sample from unique set
+                sample_size = max(1, int(len(unique_candidates) * percent / 100))
+                sampled_candidates = random.sample(unique_candidates, sample_size)
 
                 # Validate
                 validated = [phrase for phrase in sampled_candidates if is_transition(phrase, use_gpt, model_choice)]
 
-                # Normalize and count strict duplicates
-                normalized_validated = [normalize_strict(p) for p in validated]
-                counter = Counter(normalized_validated)
-                duplicates = [f"{p} ({count}x)" for p, count in counter.items() if count > 1]
-
-                # Remove duplicates while preserving original text
-                seen = set()
-                unique_cleaned = []
-                for original, norm in zip(validated, normalized_validated):
-                    if norm not in seen:
-                        seen.add(norm)
-                        unique_cleaned.append(original)
-
-                if unique_cleaned:
-                    st.success(f"{len(unique_cleaned)} unique transitions validated out of {sample_size} processed.")
-                    st.code("\n".join(unique_cleaned[:10]), language="text")
+                if validated:
+                    st.success(f"{len(validated)} unique transitions validated out of {sample_size} processed.")
+                    st.code("\n".join(validated[:10]), language="text")
 
                     st.download_button(
                         label="📥 Download All Unique Validated Transitions",
-                        data="\n".join(unique_cleaned),
+                        data="\n".join(validated),
                         file_name="validated_transitions.txt",
                         mime="text/plain"
                     )
