@@ -4,6 +4,7 @@ import docx
 import io
 import random
 import openai
+from collections import Counter
 
 # --- CONFIG ---
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -14,8 +15,8 @@ def is_transition(phrase, use_gpt, model_choice):
         return True  # Skip validation and treat all as valid
 
     prompt = f"""Is the following phrase a short transition commonly used to connect paragraphs in a news or editorial article?
-Phrase: "{phrase}"
-Respond only with "Yes" or "No"."""
+Phrase: \"{phrase}\"
+Respond only with \"Yes\" or \"No\"."""
 
     response = client.chat.completions.create(
         model=model_choice,
@@ -76,18 +77,33 @@ if uploaded_file:
                 sampled_candidates = random.sample(candidates, sample_size)
 
                 # Validate
-                cleaned = [phrase for phrase in sampled_candidates if is_transition(phrase, use_gpt, model_choice)]
+                validated = [phrase for phrase in sampled_candidates if is_transition(phrase, use_gpt, model_choice)]
 
-                if cleaned:
-                    st.success(f"{len(cleaned)} transitions validated out of {sample_size} processed.")
-                    st.code("\n".join(cleaned[:10]), language="text")
+                # Count duplicates
+                counter = Counter(validated)
+                duplicates = [f"{phrase} ({count}x)" for phrase, count in counter.items() if count > 1]
+
+                # Remove repetitive transitions (keep only one instance per phrase)
+                unique_cleaned = list(dict.fromkeys(validated))
+
+                if unique_cleaned:
+                    st.success(f"{len(unique_cleaned)} unique transitions validated out of {sample_size} processed.")
+                    st.code("\n".join(unique_cleaned[:10]), language="text")
 
                     st.download_button(
-                        label="📥 Download All Validated Transitions",
-                        data="\n".join(cleaned),
+                        label="📥 Download All Unique Validated Transitions",
+                        data="\n".join(unique_cleaned),
                         file_name="validated_transitions.txt",
                         mime="text/plain"
                     )
+
+                    if duplicates:
+                        st.download_button(
+                            label="📤 Download Duplicate Transitions for Review",
+                            data="\n".join(duplicates),
+                            file_name="duplicate_transitions.txt",
+                            mime="text/plain"
+                        )
                 else:
                     st.warning("No valid transitions found.")
             except Exception as e:
