@@ -4,6 +4,7 @@ import docx
 import io
 import random
 import openai
+import re
 from collections import Counter
 
 # --- CONFIG ---
@@ -24,6 +25,14 @@ Respond only with \"Yes\" or \"No\"."""
     )
 
     return response.choices[0].message.content.strip().lower() == "yes"
+
+# --- Helper: Filter out known non-transition patterns ---
+def looks_like_date_or_invalid_code(phrase):
+    if re.match(r"du\s\d{2}/?$", phrase, re.IGNORECASE):
+        return True
+    if phrase.lower().startswith("du ") and "/" in phrase:
+        return True
+    return False
 
 # --- Helper: Extract transitions from DOCX ---
 def extract_transitions_from_docx(docx_bytes):
@@ -65,12 +74,12 @@ if uploaded_file:
             try:
                 raw_candidates = extract_transitions_from_docx(uploaded_file.read())
 
-                # Clean formatting
-                candidates = [
-                    line.strip("•–-1234567890. ").strip()
-                    for line in raw_candidates
-                    if 2 <= len(line.strip("•–-1234567890. ").strip().split()) <= 7
-                ]
+                # Clean formatting and filter out invalid entries
+                candidates = []
+                for line in raw_candidates:
+                    phrase = line.strip("•–-1234567890. ").strip()
+                    if 2 <= len(phrase.split()) <= 7 and not looks_like_date_or_invalid_code(phrase):
+                        candidates.append(phrase)
 
                 # Sample
                 sample_size = max(1, int(len(candidates) * percent / 100))
@@ -79,12 +88,17 @@ if uploaded_file:
                 # Validate
                 validated = [phrase for phrase in sampled_candidates if is_transition(phrase, use_gpt, model_choice)]
 
-                # Count duplicates
+                # Count exact duplicates (strict match)
                 counter = Counter(validated)
                 duplicates = [f"{phrase} ({count}x)" for phrase, count in counter.items() if count > 1]
 
-                # Remove repetitive transitions (keep only one instance per phrase)
-                unique_cleaned = list(dict.fromkeys(validated))
+                # Remove strict duplicates (keep only one instance per exact phrase)
+                seen = set()
+                unique_cleaned = []
+                for phrase in validated:
+                    if phrase not in seen:
+                        seen.add(phrase)
+                        unique_cleaned.append(phrase)
 
                 if unique_cleaned:
                     st.success(f"{len(unique_cleaned)} unique transitions validated out of {sample_size} processed.")
