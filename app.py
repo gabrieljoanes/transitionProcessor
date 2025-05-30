@@ -34,6 +34,10 @@ def looks_like_date_or_invalid_code(phrase):
         return True
     return False
 
+# --- Helper: Normalize for strict deduplication ---
+def normalize_strict(phrase):
+    return re.sub(r'\s+', ' ', phrase.strip())
+
 # --- Helper: Extract transitions from DOCX ---
 def extract_transitions_from_docx(docx_bytes):
     doc = docx.Document(io.BytesIO(docx_bytes))
@@ -88,17 +92,18 @@ if uploaded_file:
                 # Validate
                 validated = [phrase for phrase in sampled_candidates if is_transition(phrase, use_gpt, model_choice)]
 
-                # Count exact duplicates (strict match)
-                counter = Counter(validated)
-                duplicates = [f"{phrase} ({count}x)" for phrase, count in counter.items() if count > 1]
+                # Normalize and count strict duplicates
+                normalized_validated = [normalize_strict(p) for p in validated]
+                counter = Counter(normalized_validated)
+                duplicates = [f"{p} ({count}x)" for p, count in counter.items() if count > 1]
 
-                # Remove strict duplicates (keep only one instance per exact phrase)
+                # Remove duplicates while preserving original text
                 seen = set()
                 unique_cleaned = []
-                for phrase in validated:
-                    if phrase not in seen:
-                        seen.add(phrase)
-                        unique_cleaned.append(phrase)
+                for original, norm in zip(validated, normalized_validated):
+                    if norm not in seen:
+                        seen.add(norm)
+                        unique_cleaned.append(original)
 
                 if unique_cleaned:
                     st.success(f"{len(unique_cleaned)} unique transitions validated out of {sample_size} processed.")
