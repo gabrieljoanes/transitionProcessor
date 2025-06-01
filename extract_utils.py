@@ -33,3 +33,11 @@ def looks_like_date_or_invalid_code(phrase):
 def normalize_strict(phrase):
     return re.sub(r'\\s+', ' ', phrase.strip())
 
+# --- Clean and filter lines to get candidate transitions ---
+def clean_and_filter_transitions(lines):
+    filtered = []
+    for line in lines:
+        phrase = line.strip("•–-1234567890. ").strip()
+        if 2 <= len(phrase.split()) <= 7 and not looks_like_date_or_invalid_code(phrase):
+            filtered.append(phrase)
+    return filtered
