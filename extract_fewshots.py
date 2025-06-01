@@ -1,15 +1,9 @@
+# extract_fewshots.py
+
 from docx import Document
 import re
-from typing import List, Dict, Tuple
-
-# List of transitions to exclude due to overuse
-COMMON_TRANSITIONS_TO_SKIP = {
-    "Enfin, signalons que",
-    "Enfin,",
-    "Et pour finir,",
-    "Enfin, dans l'actualité également,",
-    "Dans un autre registre,"
-}
+from typing import List, Dict
+from collections import defaultdict
 
 
 def is_transition_line(line: str) -> bool:
@@ -26,12 +20,13 @@ def extract_paragraphs(doc_path: str) -> List[str]:
     return [p.text.strip() for p in doc.paragraphs if p.text.strip()]
 
 
-def extract_few_shot_examples_and_jsonl(doc_path: str, limit: int = None) -> Tuple[str, str]:
+def extract_few_shot_examples(doc_path: str, limit: int = None, max_per_transition: int = 3) -> List[Dict[str, str]]:
     paragraphs = extract_paragraphs(doc_path)
     examples = []
     buffer = []
     current_transitions = []
     collecting_transitions = False
+    transition_tracker = defaultdict(int)
 
     for para in paragraphs:
         if is_transition_line(para):
@@ -42,9 +37,7 @@ def extract_few_shot_examples_and_jsonl(doc_path: str, limit: int = None) -> Tup
             continue
 
         if collecting_transitions:
-            cleaned = para.strip()
-            if cleaned not in COMMON_TRANSITIONS_TO_SKIP:
-                current_transitions.append(cleaned)
+            current_transitions.append(para.strip())
         else:
             buffer.append(para.strip())
             if len(buffer) >= 2 and current_transitions:
@@ -55,34 +48,29 @@ def extract_few_shot_examples_and_jsonl(doc_path: str, limit: int = None) -> Tup
                 if transition in paragraph_a or transition in paragraph_b:
                     continue
 
+                if transition_tracker[transition] >= max_per_transition:
+                    continue
+
                 examples.append({
                     "paragraph_a": paragraph_a,
                     "transition": transition,
                     "paragraph_b": paragraph_b
                 })
+                transition_tracker[transition] += 1
 
                 if limit and len(examples) >= limit:
                     break
 
-    # --- Export JSON ---
-    fewshot_json = json_dumps_pretty(examples)
+    return examples
 
-    # --- Export JSONL for fine-tuning ---
-    fine_tune_lines = []
-    for ex in examples:
-        fine_tune_lines.append(json_dumps_pretty({
+
+def convert_to_fine_tuning_format(fewshot_examples: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    return [
+        {
             "messages": [
-                {"role": "system", "content": "Insert a short, contextual transition between the two paragraphs."},
-                {"role": "user", "content": f"Paragraph A: {ex['paragraph_a']}\nParagraph B: {ex['paragraph_b']}"},
+                {"role": "user", "content": f"{ex['paragraph_a']} <TRANSITION> {ex['paragraph_b']}"},
                 {"role": "assistant", "content": ex["transition"]}
             ]
-        }).strip())
-
-    fine_tune_jsonl = "\n".join(fine_tune_lines)
-
-    return fewshot_json, fine_tune_jsonl
-
-
-def json_dumps_pretty(obj: Dict) -> str:
-    import json
-    return json.dumps(obj, ensure_ascii=False, indent=2)
+        }
+        for ex in fewshot_examples
+    ]
