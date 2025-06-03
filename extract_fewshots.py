@@ -1,8 +1,9 @@
 from docx import Document
 import re
 import json
-from typing import List, Dict
+from typing import List
 from collections import Counter
+from validator_utils import is_transition  # <-- NEW: GPT validation import
 
 
 def is_transition_line(line: str) -> bool:
@@ -19,7 +20,7 @@ def extract_paragraphs(doc_path: str) -> List[str]:
     return [p.text.strip() for p in doc.paragraphs if p.text.strip()]
 
 
-def extract_few_shot_examples_and_jsonl(doc_path: str, limit: int = None) -> (str, str):
+def extract_few_shot_examples_and_jsonl(doc_path: str, use_gpt=True, model="gpt-4", limit: int = None) -> (str, str):
     paragraphs = extract_paragraphs(doc_path)
     examples = []
     buffer = []
@@ -44,11 +45,16 @@ def extract_few_shot_examples_and_jsonl(doc_path: str, limit: int = None) -> (st
                 paragraph_b = buffer[-1]
                 transition = current_transitions.pop(0)
 
-                # Enforce usage cap: no more than 3 uses of a given transition
+                # Enforce usage cap
                 if transition_usage[transition] >= 3:
                     continue
 
+                # Prevent echoing
                 if transition in paragraph_a or transition in paragraph_b:
+                    continue
+
+                # Optional GPT check
+                if use_gpt and not is_transition(transition, use_gpt=True, model_choice=model):
                     continue
 
                 examples.append({
