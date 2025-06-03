@@ -17,6 +17,11 @@ output_format = st.selectbox(
     ["Transitions TXT", "Few-shots / Fine-tuning JSONL"]
 )
 
+# --- GPT Options ---
+use_gpt = st.checkbox("✅ Use GPT to validate transitions", value=True)
+model_choice = st.radio("🤖 Choose GPT model:", ["gpt-3.5-turbo", "gpt-4"], horizontal=True) if use_gpt else None
+limit_records = st.checkbox("🔟 Limit to 10 transitions only", value=False)
+
 # --- Start Processing ---
 if uploaded_file and st.button("🚀 Start Processing"):
     with st.spinner("Processing..."):
@@ -47,7 +52,12 @@ if uploaded_file and st.button("🚀 Start Processing"):
                 with open("temp.docx", "wb") as f:
                     f.write(uploaded_file.read())
 
-                fewshots_json, fine_tune_jsonl = extract_few_shot_examples_and_jsonl("temp.docx")
+                fewshots_json, fine_tune_jsonl = extract_few_shot_examples_and_jsonl(
+                    "temp.docx",
+                    use_gpt=use_gpt,
+                    model=model_choice,
+                    limit=10 if limit_records else None
+                )
 
                 st.success("✅ Few-shot and fine-tuning files generated.")
 
