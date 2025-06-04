@@ -1,78 +1,58 @@
 import streamlit as st
-from extract_utils import extract_transitions_from_docx, clean_and_filter_transitions, normalize_strict
-from extract_fewshots import extract_few_shot_examples_and_jsonl
+import os
 import json
+from utils.extract_utils import extract_transitions_from_docx, extract_long_paragraph_after_marker, extract_transition_list
+from validator_utils import build_fewshots_with_gpt
+from datetime import datetime
 
-st.set_page_config(page_title="🧠 Transition Processor", page_icon="🧠")
-st.title("🧠 Transition Processor")
+# --- UI ---
+st.set_page_config(page_title="Transition Extractor", layout="centered")
+st.title("🪄 Transition Extractor & Validator")
 
-st.write("Upload a `.docx` file and choose the desired output format.")
+uploaded_file = st.file_uploader("📄 Upload a Word (.docx) file", type=["docx"])
 
-# --- Upload File ---
-uploaded_file = st.file_uploader("📄 Upload your Word (.docx) file", type=["docx"])
+# --- Options ---
+extract_only_transitions = st.checkbox("Extract transitions only (.txt file)", value=False)
+use_gpt = st.checkbox("Use GPT for few-shot extraction", value=True)
+fewshot_mode = st.checkbox("Enable few-shot generation", value=True)
 
-# --- Output Format ---
-output_format = st.selectbox(
-    "📦 Select export format:",
-    ["Transitions TXT", "Few-shots / Fine-tuning JSONL"]
-)
+if uploaded_file:
+    bytes_data = uploaded_file.read()
+    docx_text = bytes_data.decode("utf-8", errors="ignore")  # In case we use raw text somewhere
 
-# --- GPT Options ---
-use_gpt = st.checkbox("✅ Use GPT to summarize and validate", value=False)
-model_choice = st.radio("🤖 GPT model:", ["gpt-3.5-turbo", "gpt-4"], horizontal=True) if use_gpt else None
-limit_records = st.checkbox("🔟 Limit to 10 examples", value=False)
+    # --- Option 1: Just extract transitions into a .txt file ---
+    if extract_only_transitions:
+        transitions = extract_transitions_from_docx(bytes_data)
+        transition_txt = "\n".join(transitions)
 
-# --- Start Processing ---
-if uploaded_file and st.button("🚀 Start Processing"):
-    with st.spinner("Processing..."):
+        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop", "transitions.txt")
+        with open(desktop_path, "w", encoding="utf-8") as f:
+            f.write(transition_txt)
 
-        if output_format == "Transitions TXT":
-            try:
-                raw_candidates = extract_transitions_from_docx(uploaded_file.read())
-                candidates = clean_and_filter_transitions(raw_candidates)
-                normalized = [normalize_strict(c) for c in candidates]
-                unique = list(dict.fromkeys(normalized))  # Preserve order, deduplicate
+        st.success(f"✅ Transitions saved to: {desktop_path}")
 
-                st.success(f"✅ {len(unique)} unique transitions extracted.")
-                st.code("\n".join(unique[:10]), language="text")
+    # --- Option 2: Build few-shot examples using GPT ---
+    elif use_gpt and fewshot_mode:
+        transitions = extract_transition_list(docx_text)
+        long_para = extract_long_paragraph_after_marker(docx_text)
 
-                st.download_button(
-                    label="📥 Download Transitions TXT",
-                    data="\n".join(unique),
-                    file_name="transitions.txt",
-                    mime="text/plain"
-                )
+        model_choice = st.radio("🤖 Choose GPT model:", ["gpt-3.5-turbo", "gpt-4"], horizontal=True)
 
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
+        fewshots = build_fewshots_with_gpt(long_para, transitions, model_choice=model_choice)
 
-        elif output_format == "Few-shots / Fine-tuning JSONL":
-            try:
-                with open("temp.docx", "wb") as f:
-                    f.write(uploaded_file.read())
+        if fewshots:
+            st.subheader("✅ GPT-generated Few-shot Examples")
+            for fs in fewshots:
+                st.json(fs)
 
-                fewshots_json, fine_tune_jsonl = extract_few_shot_examples_and_jsonl(
-                    "temp.docx",
-                    use_gpt=use_gpt,
-                    model=model_choice,
-                    limit=10 if limit_records else None
-                )
+            # Save to file on Desktop with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"fewshots_{timestamp}.json"
+            filepath = os.path.join(os.path.expanduser("~"), "Desktop", filename)
 
-                st.success("✅ Few-shot and fine-tuning files generated.")
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(fewshots, f, ensure_ascii=False, indent=2)
 
-                st.download_button(
-                    label="📥 Download Few-shot JSON",
-                    data=fewshots_json,
-                    file_name="fewshot_examples.json",
-                    mime="application/json"
-                )
-
-                st.download_button(
-                    label="📥 Download Fine-tuning JSONL",
-                    data=fine_tune_jsonl,
-                    file_name="fine_tuning_data.jsonl",
-                    mime="application/jsonl"
-                )
-
-            except Exception as e:
-                st.error(f"❌ Error during extraction: {e}")
+            st.success(f"✅ Few-shot examples saved to: {filepath}")
+        else:
+            st.warning("⚠️ No valid few-shot examples were generated.")
