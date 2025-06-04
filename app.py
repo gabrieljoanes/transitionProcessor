@@ -3,7 +3,7 @@ from extract_utils import extract_transitions_from_docx, clean_and_filter_transi
 from extract_fewshots import extract_few_shot_examples_and_jsonl
 import json
 
-st.set_page_config(page_title="Transition Processor", page_icon="🧠")
+st.set_page_config(page_title="🧠 Transition Processor", page_icon="🧠")
 st.title("🧠 Transition Processor")
 
 st.write("Upload a `.docx` file and choose the desired output format.")
@@ -18,9 +18,9 @@ output_format = st.selectbox(
 )
 
 # --- GPT Options ---
-use_gpt = st.checkbox("✅ Use GPT to validate transitions", value=True)
-model_choice = st.radio("🤖 Choose GPT model:", ["gpt-3.5-turbo", "gpt-4"], horizontal=True) if use_gpt else None
-limit_records = st.checkbox("🔟 Limit to 10 transitions only", value=False)
+use_gpt = st.checkbox("✅ Use GPT to summarize and validate", value=False)
+model_choice = st.radio("🤖 GPT model:", ["gpt-3.5-turbo", "gpt-4"], horizontal=True) if use_gpt else None
+limit_records = st.checkbox("🔟 Limit to 10 examples", value=False)
 
 # --- Start Processing ---
 if uploaded_file and st.button("🚀 Start Processing"):
@@ -48,7 +48,6 @@ if uploaded_file and st.button("🚀 Start Processing"):
 
         elif output_format == "Few-shots / Fine-tuning JSONL":
             try:
-                # Save file temporarily
                 with open("temp.docx", "wb") as f:
                     f.write(uploaded_file.read())
 
