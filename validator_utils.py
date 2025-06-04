@@ -1,6 +1,6 @@
-# --- FILE: validator_utils.py ---
 import openai
 import streamlit as st
+import json
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
@@ -38,9 +38,17 @@ Voici le texte :
         )
         output = response.choices[0].message.content.strip()
 
-        # Try to load as JSON directly
-        parsed = json.loads(output)
+        # Show raw output in Streamlit
+        st.subheader("🧠 GPT Raw Output")
+        st.code(output)
+
+        # Attempt to extract JSON from output
+        start = output.find("[")
+        end = output.rfind("]") + 1
+        json_text = output[start:end]
+        parsed = json.loads(json_text)
+
         return parsed if isinstance(parsed, list) else []
     except Exception as e:
-        print("GPT few-shot builder failed:", e)
+        st.error(f"GPT few-shot builder failed: {e}")
         return []
