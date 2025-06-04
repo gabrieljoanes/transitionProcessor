@@ -1,3 +1,4 @@
+# --- FILE: extract_fewshots.py ---
 import re
 import json
 from docx import Document
@@ -18,8 +19,14 @@ def extract_section_after_marker(paragraphs: List[str], marker: str) -> List[str
             return paragraphs[i+1:]
     return []
 
+def extract_transitions_used(paragraphs: List[str]) -> List[str]:
+    for i, p in enumerate(paragraphs):
+        if p.strip().lower().startswith(TRANSITION_LIST_MARKER.lower()):
+            return [t.strip() for t in paragraphs[i+1:i+4]]
+    return []
+
 def split_paragraph_by_transitions(text: str, transitions: List[str]) -> List[Tuple[str, str, str]]:
-    """Splits one long paragraph by transitions into A–T–B triplets."""
+    """Splits a long paragraph using known transitions into A–T–B triplets."""
     output = []
     pattern = '|'.join(map(re.escape, transitions))
     segments = re.split(f"(?=\\b(?:{pattern}))", text)
@@ -35,35 +42,31 @@ def split_paragraph_by_transitions(text: str, transitions: List[str]) -> List[Tu
             output.append((a, t, b))
     return output
 
-def extract_transitions_used(paragraphs: List[str]) -> List[str]:
-    for i, p in enumerate(paragraphs):
-        if p.strip().lower().startswith(TRANSITION_LIST_MARKER.lower()):
-            return [t.strip() for t in paragraphs[i+1:i+4]]
-    return []
-
 def extract_few_shot_examples_and_jsonl(doc_path, use_gpt=True, model="gpt-4", limit=None) -> Tuple[str, str]:
     paragraphs = clean_paragraphs(doc_path)
     rest = extract_section_after_marker(paragraphs, TRANSITION_MARKER)
-    if not rest:
+    transitions = extract_transitions_used(paragraphs)
+
+    if not rest or not transitions:
         return json.dumps([], indent=2), ""
 
-    try:
-        long_block = next(p for p in rest if len(p.split()) > 100)
-        transitions = extract_transitions_used(paragraphs)
-    except StopIteration:
-        return json.dumps([], indent=2), ""
+    long_blocks = [p for p in rest if len(p.split()) > 100]
+    all_triples = []
+    for block in long_blocks:
+        all_triples.extend(split_paragraph_by_transitions(block, transitions))
+        if limit and len(all_triples) >= limit:
+            break
 
-    triples = split_paragraph_by_transitions(long_block, transitions)
     results = []
     jsonl_lines = []
 
-    for a, t, b in triples[:limit or len(triples)]:
+    for a, t, b in all_triples[:limit or len(all_triples)]:
         if use_gpt:
             a_s = summarize_with_gpt(a, model=model)
             b_s = summarize_with_gpt(b, model=model)
         else:
-            a_s = a.split(".")[0].strip()
-            b_s = b.split(".")[0].strip()
+            a_s = ". ".join(a.split(".")[:2]).strip()
+            b_s = ". ".join(b.split(".")[:2]).strip()
 
         results.append({
             "paragraph_a": a_s,
