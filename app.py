@@ -1,58 +1,75 @@
 import streamlit as st
+import docx
+import io
 import os
 import json
-from extract_utils import extract_transitions_from_docx, extract_long_paragraph_after_marker, extract_transition_list
-from validator_utils import build_fewshots_with_gpt
 from datetime import datetime
+from utils.extract_utils import extract_transitions_from_docx, extract_long_paragraph_after_marker, extract_transition_list
+from utils.summarizer import summarize_paragraph
 
-# --- UI ---
-st.set_page_config(page_title="Transition Extractor", layout="centered")
-st.title("🪄 Transition Extractor & Validator")
+# --- UI Setup ---
+st.set_page_config(page_title="🪄 Transition Extractor", layout="centered")
+st.title("🪄 Transition Extractor & Few-Shot Generator")
 
-uploaded_file = st.file_uploader("📄 Upload a Word (.docx) file", type=["docx"])
+st.write("""
+Upload a `.docx` file containing transitions.
+Choose whether to extract transitions, generate few-shot examples, or both.
+Optionally use GPT to summarize paragraphs in few-shots.
+""")
 
-# --- Options ---
-extract_only_transitions = st.checkbox("Extract transitions only (.txt file)", value=False)
-use_gpt = st.checkbox("Use GPT for few-shot extraction", value=True)
-fewshot_mode = st.checkbox("Enable few-shot generation", value=True)
+# --- Upload File ---
+uploaded_file = st.file_uploader("📄 Upload Word (.docx) file", type=["docx"])
 
 if uploaded_file:
     bytes_data = uploaded_file.read()
-    docx_text = bytes_data.decode("utf-8", errors="ignore")  # In case we use raw text somewhere
 
-    # --- Option 1: Just extract transitions into a .txt file ---
-    if extract_only_transitions:
-        transitions = extract_transitions_from_docx(bytes_data)
-        transition_txt = "\n".join(transitions)
+    # --- Select processing options ---
+    extract_only = st.checkbox("📄 Extract only transitions", value=False)
+    do_fewshots = st.checkbox("✨ Generate few-shot examples", value=True)
+    use_gpt = st.checkbox("🤖 Summarize A & B with GPT", value=False)
+    model = st.radio("Model to use", ["gpt-3.5-turbo", "gpt-4"], horizontal=True) if use_gpt else None
+    limit = st.slider("Limit number of few-shots", 1, 50, 10) if do_fewshots else None
 
-        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop", "transitions.txt")
-        with open(desktop_path, "w", encoding="utf-8") as f:
-            f.write(transition_txt)
+    if st.button("🚀 Run Extraction"):
+        st.success("Processing file...")
 
-        st.success(f"✅ Transitions saved to: {desktop_path}")
+        if extract_only:
+            transitions = extract_transitions_from_docx(bytes_data)
+            filename = f"transitions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            path = os.path.join(os.path.expanduser("~"), "Desktop", filename)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(transitions))
+            st.success(f"✅ Transitions saved to: {path}")
 
-    # --- Option 2: Build few-shot examples using GPT ---
-    elif use_gpt and fewshot_mode:
-        transitions = extract_transition_list(docx_text)
-        long_para = extract_long_paragraph_after_marker(docx_text)
+        if do_fewshots:
+            long_paragraph = extract_long_paragraph_after_marker(bytes_data)
+            transition_list = extract_transition_list(bytes_data)
 
-        model_choice = st.radio("🤖 Choose GPT model:", ["gpt-3.5-turbo", "gpt-4"], horizontal=True)
+            results = []
+            for i, transition in enumerate(transition_list):
+                split_parts = long_paragraph.split(transition)
+                if len(split_parts) < 2:
+                    continue
+                a = split_parts[0].strip().split(". ")[-2:]
+                b = split_parts[1].strip().split(". ")[:2]
+                paragraph_a = ". ".join(a).strip()
+                paragraph_b = ". ".join(b).strip()
 
-        fewshots = build_fewshots_with_gpt(long_para, transitions, model_choice=model_choice)
+                if use_gpt:
+                    paragraph_a = summarize_paragraph(paragraph_a, model)
+                    paragraph_b = summarize_paragraph(paragraph_b, model)
 
-        if fewshots:
-            st.subheader("✅ GPT-generated Few-shot Examples")
-            for fs in fewshots:
-                st.json(fs)
+                results.append({
+                    "paragraph_a": paragraph_a,
+                    "transition": transition.strip(),
+                    "paragraph_b": paragraph_b
+                })
+                long_paragraph = split_parts[1]
+                if limit and len(results) >= limit:
+                    break
 
-            # Save to file on Desktop with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"fewshots_{timestamp}.json"
-            filepath = os.path.join(os.path.expanduser("~"), "Desktop", filename)
-
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(fewshots, f, ensure_ascii=False, indent=2)
-
-            st.success(f"✅ Few-shot examples saved to: {filepath}")
-        else:
-            st.warning("⚠️ No valid few-shot examples were generated.")
+            json_filename = f"fewshots_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            output_path = os.path.join(os.path.expanduser("~"), "Desktop", json_filename)
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(results, f, ensure_ascii=False, indent=2)
+            st.success(f"✅ Few-shots saved to: {output_path}")
