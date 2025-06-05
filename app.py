@@ -24,11 +24,12 @@ limit_records = st.checkbox("🔟 Limit to 10 examples", value=False)
 
 # --- Start Processing ---
 if uploaded_file and st.button("🚀 Start Processing"):
+    file_bytes = uploaded_file.read()  # ✅ read once and reuse
     with st.spinner("Processing..."):
 
         if output_format == "Transitions TXT":
             try:
-                raw_candidates = extract_transitions_from_docx(uploaded_file.read())
+                raw_candidates = extract_transitions_from_docx(file_bytes)
                 candidates = clean_and_filter_transitions(raw_candidates)
                 normalized = [normalize_strict(c) for c in candidates]
                 unique = list(dict.fromkeys(normalized))  # Preserve order, deduplicate
@@ -49,7 +50,7 @@ if uploaded_file and st.button("🚀 Start Processing"):
         elif output_format == "Few-shots / Fine-tuning JSONL":
             try:
                 with open("temp.docx", "wb") as f:
-                    f.write(uploaded_file.read())
+                    f.write(file_bytes)  # ✅ use same bytes as above
 
                 fewshots_json, fine_tune_jsonl = extract_few_shot_examples_and_jsonl(
                     "temp.docx",
