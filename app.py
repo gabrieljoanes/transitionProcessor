@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 import json
-from utils.extract_utils import extract_transitions_from_docx, extract_long_paragraph_after_marker, extract_transition_list
+from extract_utils import extract_transitions_from_docx, extract_long_paragraph_after_marker, extract_transition_list
 from validator_utils import build_fewshots_with_gpt
 from datetime import datetime
 
